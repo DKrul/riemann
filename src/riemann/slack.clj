@@ -10,12 +10,24 @@
   [message]
   (escape message {\< "&lt;" \> "&gt;" \& "&amp;"}))
 
+(defn slack-fallback
+  "Minimal, plain-text event formatting. Used for dumb clients such as IRC."
+  [events]
+  (slack-escape
+    (str
+      "*Host:* " (or (:host events) "-")
+      " *Service:* " (or (:service events) "-")
+      " *State:* " (or (:state events) "-")
+      " *Description:* " (or (:description events) "-")
+      " *Metric:* " (or (:metric events) "-"))))
+
 
 (defn default-formatter
   "Simple formatter for rendering an event as a Slack attachment."
   [events]
   {:attachments
-   [{:fields
+   [{:fallback (slack-fallback events)
+     :fields
      [{:title "Riemann Event"
        :value (slack-escape
                 (str "Host:   " (or (:host events) "-") "\n"
@@ -23,7 +35,7 @@
                      "State:   " (or (:state events) "-") "\n"
                      "Description:   " (or (:description events) "-") "\n"
                      "Metric:   " (or (:metric events) "-") "\n"
-                     "Tag:   " (or (:tag events) "-") "\n"))
+                     "Tags:   " (into [] (:tags events)) "\n"))
        :short true}]}]})
 
 
@@ -32,19 +44,7 @@
   [events]
   {:text "This event requires your attention!",
    :attachments
-   [{:fallback
-     (slack-escape
-       (str
-         "*Service:* "
-         (:service events)
-         "*Description:* "
-         (:description events)
-         " *Host:* "
-         (:host events)
-         " *Metric:* "
-         (:metric events)
-         " *State:* "
-         (:state events))),
+   [{:fallback (slack-fallback events)
      :text (slack-escape (or (:description events) "")),
      :pretext "Event Details:",
      :color
@@ -64,7 +64,7 @@
        :value (slack-escape (or (:description events) "-"))
        :short true}
       {:title "Tags",
-       :value (slack-escape (or (:tag events) "-"))
+       :value (slack-escape (str (into [] (:tags events))))
        :short true}]}]})
 
 
@@ -104,11 +104,20 @@
                                    :formatter (fn [es] {:text (apply str (map :state es))})))
 
   (rollup 5 60 slacker)
+
+  The last parameter of the arity-3 version of the function is a map
+  of parameters passed directly to clj-http. For example, you can set
+  socket and connection timeouts like so:
+
+  (slack {...} {...} {:socket-timeout 1000 :conn-timeout 1000})
   "
   ([account_name token username channel] (slack {:account account_name, :token token}
                                                 {:username username, :channel channel}))
+  ([account-info message-info]
+   (slack account-info message-info {}))
   ([{:keys [webhook_uri account token]}
-    {:keys [username channel icon formatter] :or {formatter default-formatter}}]
+    {:keys [username channel icon formatter] :or {formatter default-formatter}}
+    http-params]
    (fn [events]
      (let [{:keys [text attachments] :as result} (formatter events)
            icon (:icon result (or icon ":warning:"))
@@ -117,9 +126,10 @@
        (client/post (if webhook_uri
                       webhook_uri
                       (str "https://" account ".slack.com/services/hooks/incoming-webhook?token=" token))
-                    {:form-params
-                     {:payload (json/generate-string
-                                 (merge
-                                  {:channel channel, :username username, :icon_emoji icon}
-                                  (when text {:text text})
-                                  (dissoc result :icon :text)))}})))))
+                    (merge http-params
+                           {:form-params
+                            {:payload (json/generate-string
+                                       (merge
+                                        {:channel channel, :username username, :icon_emoji icon}
+                                        (when text {:text text})
+                                        (dissoc result :icon :text)))}}))))))

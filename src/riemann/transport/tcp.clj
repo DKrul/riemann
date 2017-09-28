@@ -19,6 +19,7 @@
                                    LengthFieldPrepender]
            [io.netty.handler.ssl SslHandler]
            [io.netty.channel.epoll EpollEventLoopGroup EpollServerSocketChannel]
+           [io.netty.channel.kqueue KQueueEventLoopGroup KQueueServerSocketChannel]
            [io.netty.channel.nio NioEventLoopGroup]
            [io.netty.channel.socket.nio NioServerSocketChannel])
   (:require [less.awful.ssl :as ssl]
@@ -54,11 +55,6 @@
   ChannelInboundHandlerAdapter which calls (handler core stats
   channel-handler-context message) for each received message.
 
-  To prevent Netty outbound buffer from filling up in the case of clients not 
-  reading ack messages, we close the channel when it becomes unwritable. Clients
-  should then be ready to reconnect if need be as they will receive some form
-  of exception in this case.
-
   Automatically handles channel closure, and handles exceptions thrown by the
   handler by logging an error and closing the channel."
   [core stats ^ChannelGroup channel-group handler]
@@ -66,13 +62,6 @@
     (channelActive [ctx]
       (.add channel-group (.channel ctx)))
 
-    (channelWritabilityChanged [^ChannelHandlerContext ctx]
-      (let [channel (.channel ctx)]
-        (when (not (.isWritable channel))
-          (warn "forcefully closing connection from " (.remoteAddress channel)
-                ". Client might be not reading acks fast enough or network is broken")
-          (.close channel))))
-    
     (channelRead [^ChannelHandlerContext ctx ^Object message]
       (try
         (handler @core stats ctx message)
@@ -85,17 +74,29 @@
 
     (isSharable [] true)))
 
+(defn kqueue-netty-implementation
+   []
+   {:event-loop-group-fn #(KQueueEventLoopGroup.)
+     :channel KQueueServerSocketChannel})
+
+(defn epoll-netty-implementation
+   []
+   {:event-loop-group-fn #(EpollEventLoopGroup.)
+     :channel EpollServerSocketChannel})
+
+(defn nio-netty-implementation
+   []
+   {:event-loop-group-fn #(NioEventLoopGroup.)
+     :channel NioServerSocketChannel})
+
 (def netty-implementation
-  "Provide native implementation of Netty for improved performance on
-  Linux only. Provide pure-Java implementation of Netty on all other
-  platforms. See http://netty.io/wiki/native-transports.html"
-  (if (and (.contains (. System getProperty "os.name") "Linux")
-           (.contains (. System getProperty "os.arch") "amd64")
-           (.equals (System/getProperty "netty.epoll.enabled" "true") "true"))
-    {:event-loop-group-fn #(EpollEventLoopGroup.)
-     :channel EpollServerSocketChannel}
-    {:event-loop-group-fn #(NioEventLoopGroup.)
-     :channel NioServerSocketChannel}))
+  (let [mac-or-freebsd? (re-find #"(mac|freebsd)" (System/getProperty "os.name"))
+       linux? (re-find  #"linux" (System/getProperty "os.name"))
+       sfbit? (re-find #"(x86_64|amd64)" (System/getProperty "os.arch"))
+       native?  (= (System/getProperty "netty.native.implementation") "true")]
+    (cond (and native? sfbit? linux?) (epoll-netty-implementation)
+             (and native? sfbit? mac-or-freebsd?) (kqueue-netty-implementation)
+             ::else (nio-netty-implementation))))
 
 (defn tcp-handler
   "Given a core, a channel, and a message, applies the message to core and
@@ -115,6 +116,7 @@
 
 (defrecord TCPServer [^String host
                       ^int port
+                      ^int so-backlog
                       equiv
                       ^ChannelGroup channel-group
                       ^ChannelInitializer initializer
@@ -156,9 +158,8 @@
                     (.group boss-group worker-group)
                     (.channel (:channel netty-implementation))
                     (.option ChannelOption/SO_REUSEADDR true)
-                    (.option ChannelOption/TCP_NODELAY true)
+                    (.option ChannelOption/SO_BACKLOG so-backlog)
                     (.childOption ChannelOption/SO_REUSEADDR true)
-                    (.childOption ChannelOption/TCP_NODELAY true)
                     (.childOption ChannelOption/SO_KEEPALIVE true)
                     (.childHandler initializer))
 
@@ -192,6 +193,7 @@
           (let [svc  (str "riemann server tcp " host ":" port)
                 in   (metrics/snapshot! stats)
                 base {:state "ok"
+                      :tags ["riemann"]
                       :time (:time in)}]
             (map (partial merge base)
                  (concat [{:service (str svc " conns")
@@ -243,10 +245,13 @@
       (gen-tcp-handler core stats channel-group tcp-handler))))
 
 (defn tcp-server
-  "Create a new TCP server. Doesn't start until (service/start!). Options:
+  "Create a new TCP server. Doesn't start until (service/start!).
+
+  Options:
   :host             The host to listen on (default 127.0.0.1).
   :port             The port to listen on. (default 5554 with TLS, or 5555 std)
-  :core             An atom used to track the active core for this server
+  :core             An atom used to track the active core for this server.
+  :so-backlog       The maximum queue length for incoming tcp connections (default 50).
   :channel-group    A global channel group used to track all connections.
   :initializer      A ChannelInitializer for creating new pipelines.
 
@@ -262,6 +267,7 @@
          stats         (metrics/rate+latency)
          host          (get opts :host "127.0.0.1")
          port          (get opts :port (if (:tls? opts) 5554 5555))
+         so-backlog    (get opts :so-backlog 50)
          channel-group (get opts :channel-group
                             (channel-group
                               (str "tcp-server " host ":" port)))
@@ -285,5 +291,5 @@
                             ; A standard handler
                             (initializer core stats channel-group nil)))]
 
-       (TCPServer. host port equiv channel-group initializer core stats
+       (TCPServer. host port so-backlog equiv channel-group initializer core stats
                    (atom nil)))))

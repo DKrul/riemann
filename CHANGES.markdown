@@ -1,3 +1,184 @@
+# Version 0.2.14
+
+Contains mostly new features and enhancements. Mathieu Corbin replaced `refs` in both `fixed-time-window` and `moving-time-window` with atoms, greatly improving their performance. They also added an `sflatten` stream and refactored the Elasticsearch output. boernd extended the capabilities of the Pushover plugin and added an MS Teams plugin. Brian Conn enhanced and reduced the payload of the Netuitive plugin.
+
+There were also some fixes to documentation, the website and bumps of various project dependencies including `clj-http` to 3.5.0.
+
+## Features and enhancements
+
+- Extend pushover functionality [\#808](https://github.com/riemann/riemann/pull/808) ([boernd](https://github.com/boernd))
+- Refactoring Elasticsearch output [\#804](https://github.com/riemann/riemann/pull/804) ([mcorbin](https://github.com/mcorbin))
+- replace refs in fixed-time-window-fn by an atom [\#797](https://github.com/riemann/riemann/pull/797) ([mcorbin](https://github.com/mcorbin))
+- Replace refs in moving-time-window by an atom [\#811](https://github.com/riemann/riemann/pull/811) ([mcorbin](https://github.com/mcorbin))
+- Updated a number of project dependencies [\#800](https://github.com/riemann/riemann/pull/800) ([jamtur01](https://github.com/jamtur01))
+- bump clj-http to 3.5.0 - http-integrations over a sniproxy \o/ [\#814](https://github.com/riemann/riemann/pull/814) ([andrerocker](https://github.com/andrerocker))
+- Netuitive Payload Size Reduction [\#831](https://github.com/riemann/riemann/pull/831) ([TheConnMan](https://github.com/TheConnMan))
+- Add ms teams output [\#830](https://github.com/riemann/riemann/pull/830) ([boernd](https://github.com/boernd))
+- Add sflatten stream [\#825](https://github.com/riemann/riemann/pull/825) ([mcorbin](https://github.com/mcorbin))
+
+## Bug fixes
+
+- Remove all \*warn-on-reflection\* warning in the influxdb stream [\#829](https://github.com/riemann/riemann/pull/829) ([mcorbin](https://github.com/mcorbin))
+
+# Version 0.2.13
+
+This release contains new Kafka input and output plugins. An Netuitive
+plugin and a new output plugin for Telgraph notifications. The InfluxDB
+plugin has been refactored, basic auth support added to the
+Elasticsearch plugin and a variety of other enhancements and fixes.
+
+## Features and enhancements
+
+- Added Kafka [input](https://github.com/riemann/riemann/pull/781) and [output](https://github.com/riemann/riemann/pull/760) plugins.
+- Added Netuitive plugin
+  [\#753](https://github.com/riemann/riemann/pull/753)
+- Telegram notification support.
+  [\#714](https://github.com/riemann/riemann/pull/714)
+- Support for Basic Auth credentials for Elasticsearch.
+  [\#754](https://github.com/riemann/riemann/pull/754)
+- Added support of time in microsecond resolution in the Riemann
+  protocol (See `time_micros` in the [Riemann client](https://github.com/riemann/riemann-java-client/blob/master/riemann-java-client/src/main/proto/riemann/proto.proto). If you maintain a Riemann client should update them to support microseconds.
+- Added an `:options` parameter to the Pagerduty plugin.
+  [\#773](https://github.com/riemann/riemann/pull/773)
+- Added Riemann tag to instrumented transports and services.
+  [\#756](https://github.com/riemann/riemann/pull/756)
+- Updated to latest codox version.
+- Pretty'ed test output.
+  [\#790](https://github.com/riemann/riemann/pull/790)
+- Removed capacitor dependency
+  [\#774](https://github.com/riemann/riemann/pull/774)
+- Bumped nrepl to 0.2.12
+  [\#769](https://github.com/riemann/riemann/pull/769)
+
+## Bug Fixes
+
+- Refactor of the InfluxDB plugin
+  [\#741](https://github.com/riemann/riemann/pull/741)
+- Prometheus label / body only support some characters.
+  [\#747](https://github.com/riemann/riemann/pull/747)
+- Cast Slack event tags into a vector
+  [\#749](https://github.com/riemann/riemann/pull/749)
+- Restore Netty queue size metric
+  [\#757](https://github.com/riemann/riemann/pull/757)
+
+# Version 0.2.12
+
+This version includes Prometheus, Druid and Elasticsearch plugins. It
+adds HTML body support for Mailgun, KairosDB HTTP integration,
+
+This version also contains a number of bug fixes and deprecates the
+`within`, `without`, and `combine` streams.
+
+We've also renamed com.aphyr to io.riemann.
+
+## Features and enhancements
+
+- Added Prometheus Plugin
+  [\#692](https://github.com/riemann/riemann/pull/692)
+- Added Druid plugin
+  [\#691](https://github.com/riemann/riemann/pull/691)
+- Add support for KairosDB HTTP integration and metric TTLs
+  [\#627](https://github.com/riemann/riemann/pull/627)
+- Add riemann.elasticsearch
+  [\#722](https://github.com/riemann/riemann/pull/722)
+- Add HTML body support for mailgun
+  [\#719](https://github.com/riemann/riemann/pull/719)
+- Add the ability to read SNS credentials from the default credential
+  chain [\#701](https://github.com/riemann/riemann/pull/701)
+- Updating netty to 4.1.0
+  [\#694](https://github.com/riemann/riemann/pull/694)
+- Allow explicit config of Slack HTTP connection params
+  [\#681](https://github.com/riemann/riemann/pull/681)
+- Add batch forwarding for datadog
+  [\#679](https://github.com/riemann/riemann/pull/679)
+
+## Bug fixes
+
+- Suppress exception logging if the exception is handled by `exception-stream` [\#726](https://github.com/riemann/riemann/issues/726)
+- Improve error messages for librato with missing metrics [\#374](https://github.com/riemann/riemann/issues/374)
+- Fix sse listening address [\#737](https://github.com/riemann/riemann/pull/737)
+- Fix RuntimeException in udp graphite-server [\#736](https://github.com/riemann/riemann/pull/736) 
+- Fix websocket listening address [\#735](https://github.com/riemann/riemann/pull/735) 
+- Remove tags and fields if value is nil or empty [\#734](https://github.com/riemann/riemann/pull/734)
+- Don't log exceptions if in exception-stream [\#729](https://github.com/riemann/riemann/pull/729) 
+- Revert previous 'fix' closing unwritable channels [\#724](https://github.com/riemann/riemann/pull/724)
+- Fix nested escaping of strings [\#717](https://github.com/riemann/riemann/pull/717) 
+- Link to '/' rather than index.html [\#711](https://github.com/riemann/riemann/pull/711) 
+- Fix fraction divisor in generating events example [\#708](https://github.com/riemann/riemann/pull/708)
+- Add ChannelOption/SO\_BACKLOG to TCP server [\#706](https://github.com/riemann/riemann/pull/706) 
+- Clarify GC behavior of \(by\) streams [\#704](https://github.com/riemann/riemann/pull/704) 
+- Correction in maintenance-mode function [\#702](https://github.com/riemann/riemann/pull/702) 
+- Add the ability to read SNS credentials from the default credential chain [\#701](https://github.com/riemann/riemann/pull/701)
+- Fixes \#374 - Librato error without metric [\#695](https://github.com/riemann/riemann/pull/695) 
+- Updating netty to 4.1.0 [\#694](https://github.com/riemann/riemann/pull/694) 
+
+## Deprecations and API changes
+
+- Removed deprecated functions: `within`, `without` and `combine`. These
+  were deprecated in 2014.
+- Renamed com.aphyr to io.riemann in Riemann core
+  [\#685](https://github.com/riemann/riemann/pull/685)
+
+# Version 0.2.11
+
+This update includes a variety of bug fixes and improvements. Also
+included is a VictorOps integration, improvements to the Graphite, Xymon,
+InfluxDB, Hipchat and Nagios integrations.
+
+Internally the project has been updated for Clojure 1.8.
+
+## Bugfixes
+
+- time: prevent negative delays in every!. fixes #368
+- Coerce graphite metric to double, when not an int
+- Fix InfluxDB 0.9 tags
+
+## Deprecations and API changes
+
+- `update` is now a reserved keyword in Clojure. Please use `insert`
+  instead. If you have a configuration which uses `update` then Riemann
+  will generate a deprecation warning and automatically use `insert`.
+- riemann.config: use :refer instead of def for logstash & graphite
+- Fix logging, use logback instead log4j, (import log levels from
+  `ch.qos.logback.classic` instead of `org.apache.log4j`)
+- `by-fn` now expects the new-fork argument to be a 1-arity function
+- pagerduty requires the service-key to be passed as a key named `service-key`
+  rather than directly as a string.
+  eg: `(let [pd (pagerduty :service-key "my-service-key")]`
+
+## Improvement
+
+- Added tags to the OpsGenie integration.
+- Xymon: fixes, scalability, multiple xymon host, error handling
+- hipchat: provide a default from field and do not leak server params
+- nagios: provide a default state for events
+- Added support for a PagerDuty formatter for events
+- Allow overriding graphite metric conversion method
+- Allow graphite to take a function as host name
+- Xymon: ability to support more message types. Enable/Disable messages
+  implementation
+- Add insecure flag for influxdb in case cert is self-signed for https
+- Add -v and version command to display Lein or POM version
+- logging: improve console logging
+- folds: add modes and mode
+- Cloudwatch can now use instance profiles for authentication
+- Slack can now output simple status lines for text clients
+- The Twilio client was adapted to updated API behavior
+- Docstring typo fixes
+
+## New features
+
+- VictorOps integration
+- Add config directory to classpath; we won't need to use `include` any more
+- fill-in-last*: apply arbitrary function to last event
+
+## Internals
+
+- Move to Clojure 1.8
+- riemann-clojure-client "0.4.2"
+- nREPL dep to 0.2.11
+- netty to 4.0.36.Final
+
 # Version 0.2.10
 
 0.2.10 brings long-awaited fixes to the Influx integration, support for sending
@@ -10,6 +191,8 @@ also a few minor usability improvements, and assorted library updates.
 - \*config-file\* is correctly bound when including directories
 
 ## Deprecations and API changes
+
+- Hipchat plugin now requires a v2 auth token
 
 ## New features
 

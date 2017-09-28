@@ -11,12 +11,14 @@
                      [common      :as common :refer [event]]
                      [core        :as core]
                      [datadog     :refer [datadog]]
+                     [druid       :refer [druid]]
                      [email       :refer [mailer]]
                      [folds       :as folds]
                      [graphite    :as graphite-client :refer [graphite]]
                      [hipchat     :refer [hipchat]]
                      [index       :as index]
                      [influxdb    :refer [influxdb]]
+                     [kafka       :as kafka :refer [kafka]]
                      [kairosdb    :refer [kairosdb]]
                      [keenio      :refer [keenio]]
                      [librato     :refer [librato-metrics]]
@@ -24,7 +26,9 @@
                      [logging     :as logging]
                      [logstash    :as logstash :refer [logstash]]
                      [mailgun     :refer [mailgun]]
+                     [msteams     :refer [msteams]]
                      [nagios      :refer [nagios]]
+                     [netuitive   :refer [netuitive]]
                      [opentsdb    :refer [opentsdb]]
                      [opsgenie    :refer [opsgenie]]
                      [pagerduty   :refer [pagerduty]]
@@ -37,7 +41,12 @@
                      [slack       :refer [slack]]
                      [sns         :refer [sns-publisher]]
                      [stackdriver :refer [stackdriver]]
+                     [prometheus  :refer [prometheus]]
+                     [elasticsearch :refer [elasticsearch
+                                            default-bulk-formatter
+                                            elasticsearch-bulk]]
                      [streams     :refer :all]
+                     [telegram    :refer [telegram]]
                      [test        :as test :refer [tap io tests]]
                      [time        :refer [unix-time linear-time once! every!]]
                      [twilio      :refer [twilio]]
@@ -168,6 +177,31 @@
   [& opts]
   (service! (sse/sse-server (kwargs-or-map opts))))
 
+(defn kafka-consumer
+  "Add a new kafka consumer with opts to the default core.
+
+  (kafka-consumer {:consumer.config {:bootstrap.servers \"localhost:9092\"
+                                     :group.id \"riemann\"}
+                   :topics [\"riemann\"]})
+ 
+  Options:
+   
+  For a full list of :consumer.config options see the kafka consumer docs.
+  NOTE: The :enable.auto.commit option is ignored and defaults to true.
+
+  :consumer.config      Consumer configuration 
+    :bootstrap.servers  Bootstrap configuration, default is \"localhost:9092\"
+    :group.id           Consumer group id, default is \"riemann\"
+  :topics               Topics to consume from, default is [\"riemann\"]
+  :key.deserializer     Key deserializer function, defaults to the 
+                        keyword-deserializer.
+  :value.deserializer   Value deserializer function, defaults to 
+                        json-deserializer.
+  :poll.timeout.ms      Polling timeout, default is 100."
+
+  [& opts]
+  (service! (kafka/kafka-consumer (kwargs-or-map opts))))
+
 (defn streams
   "Add any number of streams to the default core."
   [& things]
@@ -224,6 +258,9 @@
 
 (defn reinject
   "A stream which applies any events it receives back into the current core.
+  You almost never need this: it makes it easy to create infinite loops, and
+  it's rarely the case that you *need* top-level recursion. Where possible,
+  prefer a stream that passes events to children.
 
   (with :metric 1 reinject)"
   [event]

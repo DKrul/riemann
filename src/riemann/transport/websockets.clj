@@ -158,7 +158,7 @@
               (info "Unknown URI " (:uri req) ", closing")
               (http/close ch))))
 
-        (catch Throwable t
+        (catch Exception t
           (do
             (warn t "ws-handler caught; closing websocket connection.")
             (http/close ch)))))))
@@ -183,7 +183,7 @@
           (locking this
             (when-not @server
               (reset! server (http/run-server (ws-handler core stats)
-                                              {:host host
+                                              {:ip host
                                                :port port}))
               (info "Websockets server" host port "online"))))
 
@@ -198,6 +198,7 @@
           ; Take snapshots of our current stats.
           (let [svc (str "riemann server ws " host ":" port)
                 base {:time (unix-time)
+                      :tags ["riemann"]
                       :state "ok"}
                 out (metrics/snapshot! (:out stats))
                 in  (metrics/snapshot! (:in stats))]
@@ -228,9 +229,6 @@
 
   Options:
   :host   The address to listen on (default 127.0.0.1)
-          Currently does nothing; this option depends on an incomplete
-          feature in Aleph, the underlying networking library. Aleph will
-          currently bind to all interfaces, regardless of this value.
   :port   The port to listen on (default 5556)"
   ([] (ws-server {}))
   ([opts]

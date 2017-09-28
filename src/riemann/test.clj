@@ -189,7 +189,9 @@
            ~'(:require [riemann.test :refer [deftest inject! io tap run-stream lookup]]
                        [riemann.streams :refer :all]
                        [riemann.folds :as folds]
+                       [pjstadig.humane-test-output :as output]
                        [clojure.test :refer [is are]]))
+         (output/activate!)
          ~@body
          (ns ~old-ns))))
 
@@ -242,6 +244,6 @@
 
 (defmacro test-stream-intervals
   "Verifies that run-stream-intervals, taking inputs/intervals, forwards
-  outputs to chldren."
+  outputs to children."
   [stream inputs-and-intervals outputs]
   `(test/is (~'= (run-stream-intervals ~stream ~inputs-and-intervals) ~outputs)))

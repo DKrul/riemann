@@ -74,13 +74,15 @@
   name, tags) from; to fill in default states or TTLs, and so on.
 
   If parser-fn is nil, defaults to identity."
-  [parser-fn]
+  [parser-fn protocol]
   (let [parser-fn (or parser-fn identity)]
     (proxy [MessageToMessageDecoder] []
       (decode [context message out]
         (try+
           (.add out
-                (-> message
+                (-> (if (= protocol :udp)
+                      (.toString (.content message) CharsetUtil/UTF_8)
+                      message)
                     decode-graphite-line
                     parser-fn))
           (catch Object e
@@ -102,7 +104,7 @@
   :host       \"127.0.0.1\"
   :port       2003
   :protocol   :tcp or :udp (default :tcp)
-  :parser-fn  an optional function given to decode-graphite-line"
+  :parser-fn  an optional function to further transform events after decoding."
   ([] (graphite-server {}))
   ([opts]
      (let [core (get opts :core (atom nil))
@@ -126,7 +128,7 @@
              ^:shared string-encoder (StringEncoder.
                                        CharsetUtil/UTF_8)
              ^:shared graphite-decoder (graphite-frame-decoder
-                                         (:parser-fn opts))
+                                         (:parser-fn opts) protocol)
              ^{:shared true :executor shared-event-executor} handler
              graphite-message-handler)]
        (server (merge opts

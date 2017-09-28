@@ -1,3 +1,6 @@
+.DS_Store
+.ruby-version
+_site
 .idea
 *.iml
 .cake
@@ -26,3 +29,5 @@ site/**
 bench/**
 target/**
 /target/
+config.edn
+riemann.config

@@ -14,7 +14,7 @@
     (java.util List)
     (java.util.concurrent TimeUnit
                           Executors)
-    (com.aphyr.riemann Proto$Msg)
+    (io.riemann.riemann Proto$Msg)
     (io.netty.channel ChannelInitializer
                       Channel
                       ChannelPipeline
@@ -38,7 +38,7 @@
 (def ioutil-lock
   "There's a bug in JDK 6, 7, and 8 which can cause a deadlock initializing
   sse-server and netty concurrently; we serialize them with this lock.
-  https://github.com/aphyr/riemann/issues/617"
+  https://github.com/riemann/riemann/issues/617"
   (Object.))
 
 (defn ^DefaultChannelGroup channel-group
@@ -149,14 +149,18 @@
 (defonce instrumentation
   (let [^DefaultEventExecutorGroup executor shared-event-executor
         svc "riemann netty event-executor "]
-
     (reify Instrumented
       (events [this]
-        (let [base {:state "ok" :time (unix-time)}]
+        (let [base {:state "ok"
+                    :tags  ["riemann"]
+                    :time  (unix-time)}
+              queue-size (reduce + (map #(.pendingTasks %)
+                                        (iterator-seq (.iterator executor))))]
                    (map (partial merge base)
                         [{:service (str svc "threads active")
-                          :metric (.. executor executorCount)}]))
-        ))))
+                          :metric (.. executor executorCount)}
+                         {:service (str svc "queue size")
+                          :metric queue-size}]))))))
 
 (defn handle
   "Handles a msg with the given core."

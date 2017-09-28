@@ -67,10 +67,10 @@
      (doseq [child# ~children]
        (try
          (child# ~event)
-         (catch Throwable e#
-           (warn e# (str child# " threw"))
+         (catch Exception e#
            (if-let [ex-stream# *exception-stream*]
-             (ex-stream# (exception->event e# ~event))))))
+             (ex-stream# (exception->event e# ~event))
+             (warn e# (str child# " threw"))))))
      ; TODO: Why return true?
      true))
 
@@ -162,13 +162,6 @@
       (when-not (nil? value)
         (call-rescue value children)))))
 
-(defn combine
-  "Returns a function which takes a seq of events.
-  Combines events with f, then forwards the result to children."
-  [f & children]
-  (deprecated "combine is deprecated in favor of smap or smap*"
-              (apply smap* f children)))
-
 (defn smapcat
   "Streaming mapcat. Calls children with each event in (f event), which should
   return a sequence. For instance, to set the state of any services with
@@ -187,6 +180,13 @@
   [f & children]
   (fn stream [event]
     (doseq [e (f event)]
+      (call-rescue e children))))
+
+(defn sflatten
+  "Streaming flatten. Calls children with each event in events. Events should be a sequence."
+  [& children]
+  (fn stream [events]
+    (doseq [e events]
       (call-rescue e children))))
 
 (defn sreduce
@@ -305,25 +305,30 @@
 
   Events without times accrue in the current window."
   [n & children]
-  (let [cutoff (ref 0)
-        buffer (ref [])]
+  (let [state (atom {:cutoff 0
+                     :buffer []
+                     :send? true})]
     (fn stream [event]
-      (let [events (dosync
-                     ; Compute minimum allowed time
-                     (let [cutoff (alter cutoff max (- (get event :time 0) n))]
-                       (when (or (nil? (:time event))
-                                 (< cutoff (:time event)))
-                         ; This event belongs in the buffer, and our cutoff may
-                         ; have changed.
-                         (alter buffer conj event)
-                         (alter buffer
-                                (fn alter [events]
-                                  (vec (filter
-                                         (fn [e] (or (nil? (:time e))
-                                                     (< cutoff (:time e))))
-                                         events)))))))]
-        (when events
-          (call-rescue events children))))))
+      (let [result (swap!
+                    state
+                    (fn [{:keys [cutoff buffer]}]
+                      ; Compute minimum allowed time
+                      (let [cutoff (max cutoff (- (get event :time 0) n))
+                            send? (or (nil? (:time event))
+                                      (< cutoff (:time event)))
+                            buffer (if send?
+                                        ; This event belongs in the buffer,
+                                        ; and our cutoff may have changed.
+                                     (vec (filter
+                                           (fn [e] (or (nil? (:time e))
+                                                       (< cutoff (:time e))))
+                                           (conj buffer event)))
+                                     buffer)]
+                        {:cutoff cutoff
+                         :buffer buffer
+                         :send? send?})))]
+        (when (:send? result)
+          (call-rescue (:buffer result) children))))))
 
 (defn- fixed-time-window-fn
   "A fixed window over the event stream in time. Emits vectors of events, such
@@ -331,7 +336,6 @@
   *not* overlap; each event appears at most once in the output stream. Once an
   event is emitted, all events *older or equal* to that emitted event are
   silently dropped.
-
   Events without times accrue in the current window."
   [n start-time-fn & children]
   ; This is not a particularly inspired or clear implementation. :-(
@@ -339,44 +343,43 @@
   (when (zero? n)
     (throw (IllegalArgumentException. "Can't have a zero-width time window.")))
 
-  (let [start-time (ref nil)
-        buffer     (ref [])]
+  (let [state (atom {:start-time nil
+                     :buffer []
+                     :windows nil})]
     (fn stream [event]
-      (let [windows (dosync
-                      (cond
-                        ; No time
-                        (nil? (:time event))
-                        (do
-                          (alter buffer conj event)
-                          nil)
+      (let [s (swap! state
+                     (fn [{:keys [start-time buffer] :as state}]
+                       (cond
+                         ; No time
+                         (nil? (:time event))
+                         (-> (update state :buffer conj event)
+                             (assoc :windows nil))
 
-                        ; No start time
-                        (nil? @start-time)
-                        (do
-                          (ref-set start-time (start-time-fn n event))
-                          (ref-set buffer [event])
-                          nil)
+                         ; No start time
+                         (nil? start-time)
+                         (assoc state :start-time (start-time-fn n event)
+                                      :buffer [event]
+                                      :windows nil)
 
-                        ; Too old
-                        (< (:time event) @start-time)
-                        nil
+                         ; Too old
+                         (< (:time event) start-time)
+                         (assoc state :windows nil)
 
-                        ; Within window
-                        (< (:time event) (+ @start-time n))
-                        (do
-                          (alter buffer conj event)
-                          nil)
+                         ; Within window
+                         (< (:time event) (+ start-time n))
+                         (-> (update state :buffer conj event)
+                             (assoc :windows nil))
 
-                        ; Above window
-                        true
-                        (let [delta (- (:time event) @start-time)
-                              dstart (- delta (mod delta n))
-                              empties (dec (/ dstart n))
-                              windows (conj (repeat empties []) @buffer)]
-                          (alter start-time + dstart)
-                          (ref-set buffer [event])
-                          windows)))]
-        (when windows
+                         ; Above window
+                         true
+                         (let [delta (- (:time event) start-time)
+                               dstart (- delta (mod delta n))
+                               empties (dec (/ dstart n))
+                               windows (conj (repeat empties []) buffer)]
+                           (-> (update state :start-time + dstart)
+                               (assoc :buffer [event]
+                                      :windows windows))))))]
+        (when-let [windows (:windows s)]
           (doseq [w windows]
             (call-rescue w children)))))))
 
@@ -1066,9 +1069,10 @@
            bottom-stream))))
 
 (defn throttle
-  "Passes on at most n events every dt seconds. If more than n events arrive in
-  a dt-second fixed window, drops remaining events. Imposes no additional
-  latency; events are either passed on immediately or dropped."
+  "Passes on at most n events, or vectors of events, every dt seconds. If more
+  than n events (or vectors) arrive in a dt-second fixed window, drops
+  remaining events. Imposes no additional latency; events are either passed on
+  immediately or dropped."
   [n dt & children]
   (part-time-simple
     dt
@@ -1496,12 +1500,26 @@
   Be aware that (by) over unbounded values can result in
   *many* substreams being created, so you wouldn't want to write
   (by metric prn): you'd get a separate prn for *every* unique metric that
-  came in."
+  came in.  Also, (by) streams are never garbage-collected."
   [fields & children]
   ; new-fork is a function which gives us a new copy of our children.
   ; table is a reference which maps (field event) to a fork (or list of
   ; children).
-  `(let [new-fork# (fn [] [~@children])]
+  `(let [new-fork# (fn [_#] [~@children])]
+     (by-fn ~fields new-fork#)))
+
+(defmacro by-builder
+  "Splits stream by provided function.
+   This is a variation of `by` where forms are executed when a fork
+   is created to yield the children.
+
+   This allows you to perform operations based on the fork-name, i.e:
+   the output of the given fields.
+
+   (by-builder [host :host] (forward (get relay-by-host host)))
+   "
+  [[sym fields] & forms]
+  `(let [new-fork# (fn [~sym] [(do ~@forms)])]
      (by-fn ~fields new-fork#)))
 
 (defn by-fn [fields new-fork]
@@ -1516,7 +1534,7 @@
        (let [fork-name (f event)
              fork (if-let [fork (@table fork-name)]
                     fork
-                    ((swap! table assoc fork-name (new-fork)) fork-name))]
+                    ((swap! table assoc fork-name (new-fork fork-name)) fork-name))]
          (call-rescue event fork)))))
 
 (defn changed
@@ -1563,28 +1581,6 @@
   [& children]
   `(by [:host :service]
        (changed :state ~@children)))
-
-(defn within
-  "Passes on events only when their metric falls within the given inclusive
-  range.
-
-  (within [0 1] (fn [event] do-something))"
-  [r & children]
-  (deprecated "streams/within is deprecated; use (where (< x metric y))"
-              (fn stream [event]
-                (when-let [m (:metric event)]
-                  (when (<= (first r) m (last r))
-                    (call-rescue event children))))))
-
-(defn without
-  "Passes on events only when their metric falls outside the given (inclusive)
-  range."
-  [r & children]
-  (deprecated "streams/without is deprecated; use (where (not (< x metric y)))"
-              (fn stream [event]
-                (when-let [m (:metric event)]
-                  (when-not (<= (first r) m (last r))
-                    (call-rescue event children))))))
 
 (defn over
   "Passes on events only when their metric is greater than x"
